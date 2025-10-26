@@ -37,6 +37,10 @@ COPY --chown=claude:claude startup.py /app/startup.py
 COPY scripts/litellm-entrypoint.sh /usr/local/bin/litellm-entrypoint.sh
 RUN chmod +x /usr/local/bin/litellm-entrypoint.sh
 
+# Make database initialization script executable
+COPY scripts/init_db.py /app/scripts/init_db.py
+RUN chmod +x /app/scripts/init_db.py
+
 # Switch back to claude user
 USER claude
 

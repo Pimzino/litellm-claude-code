@@ -21,6 +21,14 @@ def main():
     os.chdir(proxy_dir)
 
     try:
+        # First check if we can access the schema file
+        schema_file = os.path.join(proxy_dir, 'prisma', 'schema.prisma')
+        if not os.path.exists(schema_file):
+            print(f"Prisma schema file not found at {schema_file}")
+            return False
+
+        print(f"Found Prisma schema at {schema_file}")
+
         # Run prisma db push to create the database tables
         print("Running prisma db push to create database tables...")
         result = subprocess.run(
@@ -30,17 +38,26 @@ def main():
             env=os.environ
         )
 
+        print(f"Prisma command exit code: {result.returncode}")
+        if result.stdout:
+            print(f"Prisma stdout: {result.stdout}")
+        if result.stderr:
+            print(f"Prisma stderr: {result.stderr}")
+
         if result.returncode == 0:
             print("Database tables created successfully!")
-            print(result.stdout)
+            return True
         else:
             print("Error creating database tables:")
             print(result.stderr)
-            sys.exit(1)
+            return False
 
     except Exception as e:
         print(f"Error initializing database: {str(e)}")
-        sys.exit(1)
+        import traceback
+        traceback.print_exc()
+        return False
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    sys.exit(0 if success else 1)

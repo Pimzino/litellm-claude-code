@@ -24,18 +24,13 @@ def initialize_database():
     os.chdir(proxy_dir)
 
     try:
-        # First check if tables already exist by running a simple query
-        print("Checking if database tables already exist...")
-        check_result = subprocess.run(
-            ['prisma', 'db', 'pull'],
-            capture_output=True,
-            text=True,
-            env=os.environ
-        )
+        # First check if we can access the schema file
+        schema_file = os.path.join(proxy_dir, 'prisma', 'schema.prisma')
+        if not os.path.exists(schema_file):
+            print(f"Prisma schema file not found at {schema_file}")
+            return False
 
-        # If the pull was successful, tables likely exist
-        if check_result.returncode == 0:
-            print("Database schema appears to be initialized. Checking for updates...")
+        print(f"Found Prisma schema at {schema_file}")
 
         # Run prisma db push to sync schema (safe if already in sync)
         print("Syncing database schema (this is safe if tables already exist)...")
@@ -46,21 +41,28 @@ def initialize_database():
             env=os.environ
         )
 
+        print(f"Prisma command exit code: {result.returncode}")
+        if result.stdout:
+            print(f"Prisma stdout: {result.stdout}")
+        if result.stderr:
+            print(f"Prisma stderr: {result.stderr}")
+
         if result.returncode == 0:
             if "Your database is now in sync" in result.stdout or "Database is already in sync" in result.stdout:
                 print("Database schema is already up to date.")
             else:
                 print("Database schema updated successfully!")
-                if result.stdout:
-                    print(result.stdout)
+            return True
         else:
             print("Error syncing database schema:")
             print(result.stderr)
-            # Don't exit here, let LiteLLM try to start anyway
+            return False
 
     except Exception as e:
         print(f"Error checking database schema: {str(e)}")
-        # Don't exit here, let LiteLLM try to start anyway
+        import traceback
+        traceback.print_exc()
+        return False
 
 # The custom provider will be loaded via the YAML config
 print("Starting LiteLLM with custom provider configuration...")
@@ -96,7 +98,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Initialize database tables before starting LiteLLM
-    initialize_database()
+    db_init_success = initialize_database()
+    if not db_init_success:
+        print("WARNING: Database initialization failed, but continuing with LiteLLM startup...")
 
     # Import litellm and ensure custom provider is registered
     import litellm
