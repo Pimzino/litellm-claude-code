@@ -12,6 +12,56 @@ sys.path.append('/app')
 # Ensure we're using the venv Python
 os.environ['PATH'] = '/opt/venv/bin:' + os.environ.get('PATH', '')
 
+# Set Prisma cache directory
+os.environ['PRISMA_PYTHON_CACHE_DIR'] = '/home/claude/.cache/prisma-python'
+
+def initialize_database():
+    """Initialize the LiteLLM database tables if they don't exist"""
+    print("Checking LiteLLM database schema...")
+
+    # Change to the LiteLLM proxy directory
+    proxy_dir = '/opt/venv/lib/python3.11/site-packages/litellm/proxy'
+    os.chdir(proxy_dir)
+
+    try:
+        # First check if tables already exist by running a simple query
+        print("Checking if database tables already exist...")
+        check_result = subprocess.run(
+            ['prisma', 'db', 'pull'],
+            capture_output=True,
+            text=True,
+            env=os.environ
+        )
+
+        # If the pull was successful, tables likely exist
+        if check_result.returncode == 0:
+            print("Database schema appears to be initialized. Checking for updates...")
+
+        # Run prisma db push to sync schema (safe if already in sync)
+        print("Syncing database schema (this is safe if tables already exist)...")
+        result = subprocess.run(
+            ['prisma', 'db', 'push', '--accept-data-loss'],
+            capture_output=True,
+            text=True,
+            env=os.environ
+        )
+
+        if result.returncode == 0:
+            if "Your database is now in sync" in result.stdout or "Database is already in sync" in result.stdout:
+                print("Database schema is already up to date.")
+            else:
+                print("Database schema updated successfully!")
+                if result.stdout:
+                    print(result.stdout)
+        else:
+            print("Error syncing database schema:")
+            print(result.stderr)
+            # Don't exit here, let LiteLLM try to start anyway
+
+    except Exception as e:
+        print(f"Error checking database schema: {str(e)}")
+        # Don't exit here, let LiteLLM try to start anyway
+
 # The custom provider will be loaded via the YAML config
 print("Starting LiteLLM with custom provider configuration...")
 
@@ -20,7 +70,7 @@ print("Starting LiteLLM proxy with YAML config...")
 
 if __name__ == "__main__":
     os.environ['CONFIG_FILE_PATH'] = '/app/config/litellm_config.yaml'
-    
+
     # Check for required master key
     master_key = os.environ.get('LITELLM_MASTER_KEY')
     if not master_key:
@@ -34,7 +84,7 @@ if __name__ == "__main__":
         print("[STARTUP] Generate a secure key: echo \"sk-$(openssl rand -hex 32)\"")
         print("[STARTUP] Or for development: export LITELLM_MASTER_KEY=\"sk-dev-test-key\"")
         sys.exit(1)
-    
+
     # Validate key format
     if not master_key.startswith('sk-'):
         print("[STARTUP] ERROR: LITELLM_MASTER_KEY must start with 'sk-' (LiteLLM requirement)")
@@ -44,10 +94,13 @@ if __name__ == "__main__":
         print("[STARTUP] - sk-dev-test-key (for development)")
         print("[STARTUP] - sk-$(openssl rand -hex 32) (for production)")
         sys.exit(1)
-    
+
+    # Initialize database tables before starting LiteLLM
+    initialize_database()
+
     # Import litellm and ensure custom provider is registered
     import litellm
-    
+
     # Double-check provider registration
     if hasattr(litellm, 'custom_provider_map'):
         print(f"[STARTUP] Custom providers registered: {litellm.custom_provider_map}")
@@ -56,12 +109,12 @@ if __name__ == "__main__":
             print(f"[STARTUP] Provider {i}: {provider.get('provider')}")
     else:
         print("[STARTUP] Warning: No custom_provider_map found")
-    
+
     # Also check if our wrapper patch is applied
     print(f"[STARTUP] get_llm_provider function: {litellm.get_llm_provider}")
-    
+
     import uvicorn
     from litellm.proxy.proxy_server import app
-    
+
     # Start the server
     uvicorn.run(app, host="0.0.0.0", port=4000)
